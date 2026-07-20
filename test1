@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Ad Request Interceptor</title>
+    <style>
+        body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background: #1a1a2e; color: #eee; }
+        h1 { color: #e94560; }
+        .panel { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 20px; margin: 15px 0; }
+        .panel h3 { margin-top: 0; color: #e94560; }
+        label { display: block; margin: 10px 0 5px; font-size: 14px; color: #ccc; }
+        input, textarea, select { width: 100%; padding: 8px; background: #0f3460; border: 1px solid #e94560; color: #fff; border-radius: 4px; font-family: monospace; }
+        textarea { height: 60px; resize: vertical; }
+        button { background: #e94560; color: white; border: none; padding: 12px 30px; font-size: 16px; border-radius: 6px; cursor: pointer; margin: 10px 5px 10px 0; }
+        button:hover { background: #ff6b81; }
+        button:disabled { background: #555; cursor: not-allowed; }
+        #log { background: #000; color: #0f0; padding: 15px; border-radius: 4px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+        .log-info { color: #0f0; }
+        .log-warn { color: #ff0; }
+        .log-error { color: #f00; }
+        .log-success { color: #0ff; }
+        #status { display: inline-block; padding: 5px 15px; border-radius: 4px; margin-left: 10px; }
+        .status-idle { background: #555; }
+        .status-active { background: #e94560; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    </style>
+</head>
+<body>
+
+    <h1>🔬 Ad Request Interceptor</h1>
+    <p>This page intercepts and modifies ad network requests BEFORE they leave your browser.</p>
+
+    <!-- ============ CONFIG PANEL ============ -->
+    <div class="panel">
+        <h3>⚙️ Spoof Configuration</h3>
+        
+        <label>Fake Referer (what domain the ad network sees):</label>
+        <input type="text" id="spoofReferer" value="https://www.nytimes.com/world-news/">
+        
+        <label>Fake Keywords (JSON array):</label>
+        <input type="text" id="spoofKeywords" value='["mesothelioma","lawsuit","settlement"]'>
+        
+        <label>Fake Timezone (TZ offset):</label>
+        <input type="text" id="spoofTZ" value="-5">
+        
+        <label>Fake Screen Resolution Ratio:</label>
+        <input type="text" id="spoofRes" value="15.0">
+        
+        <label>Fake Country Code:</label>
+        <select id="spoofCountry">
+            <option value="US">US - United States</option>
+            <option value="UK">UK - United Kingdom</option>
+            <option value="CA">CA - Canada</option>
+            <option value="AU">AU - Australia</option>
+            <option value="IN">IN - India</option>
+        </select>
+        
+        <label>Publisher Key:</label>
+        <input type="text" id="publisherKey" value="df9f41ca7bd1fa5c1372337a9dbe666f">
+        
+        <label>Ad Format:</label>
+        <select id="adFormat">
+            <option value="iframe">iframe</option>
+            <option value="popunder">popunder</option>
+            <option value="banner">banner</option>
+        </select>
+        
+        <br><br>
+        <button id="startBtn" onclick="startInterceptor()">🚀 Start Interceptor</button>
+        <button id="stopBtn" onclick="stopInterceptor()" disabled>⏹️ Stop</button>
+        <span id="status" class="status-idle">IDLE</span>
+    </div>
+
+    <!-- ============ AD SLOTS ============ -->
+    <div class="panel">
+        <h3>📢 Ad Slots</h3>
+        <div id="adSlot1" style="width:728px; height:90px; background:#333; border:1px dashed #e94560; display:flex; align-items:center; justify-content:center; color:#888;">
+            Ad Slot 1 (728x90)
+        </div>
+        <br>
+        <div id="adSlot2" style="width:160px; height:300px; background:#333; border:1px dashed #e94560; display:flex; align-items:center; justify-content:center; color:#888;">
+            Ad Slot 2 (160x300)
+        </div>
+    </div>
+
+    <!-- ============ LOG PANEL ============ -->
+    <div class="panel">
+        <h3>📋 Interception Log</h3>
+        <div id="log">Waiting to start...\n</div>
+        <br>
+        <button onclick="clearLog()">🗑️ Clear Log</button>
+        <button onclick="exportHAR()">📥 Export as HAR</button>
+    </div>
+
+    <script>
+        // ============================================
+        // GLOBAL STATE
+        // ============================================
+        
+        let interceptorActive = false;
+        let originalFetch = null;
+        let originalXHROpen = null;
+        let originalXHRSend = null;
+        let originalCreateElement = null;
+        let originalSetAttribute = null;
+        let requestLog = [];
+        let requestCount = 0;
+
+        // ============================================
+        // LOGGING
+        // ============================================
+
+        function addLog(msg, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const cssClass = `log-${type}`;
+            logDiv.innerHTML += `<span class="${cssClass}">[${timestamp}] ${msg}</span>\n`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            requestLog = [];
+            addLog('Log cleared');
+        }
+
+        function setStatus(active) {
+            const statusEl = document.getElementById('status');
+            const startBtn = document.getElementById('startBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            
+            if (active) {
+                statusEl.textContent = 'ACTIVE - Intercepting';
+                statusEl.className = 'status-active';
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+            } else {
+                statusEl.textContent = 'IDLE';
+                statusEl.className = 'status-idle';
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+            }
+        }
+
+        // ============================================
+        // GET SPOOF CONFIG
+        // ============================================
+
+        function getSpoofConfig() {
+            return {
+                referer: document.getElementById('spoofReferer').value,
+                keywords: document.getElementById('spoofKeywords').value,
+                tz: document.getElementById('spoofTZ').value,
+                res: document.getElementById('spoofRes').value,
+                country: document.getElementById('spoofCountry').value,
+                pubKey: document.getElementById('publisherKey').value,
+                format: document.getElementById('adFormat').value,
+            };
+        }
+
+        // ============================================
+        // URL MODIFIER - THE CORE SPOOFING LOGIC
+        // ============================================
+
+        function modifyURL(url) {
+            if (!interceptorActive) return url;
+            
+            const config = getSpoofConfig();
+            let modified = url;
+            let changes = [];
+
+            // Modify referer parameter
+            if (modified.includes('refer=') || modified.includes('referer=')) {
+                const oldRefer = modified.match(/(?:refer|referer)=([^&]+)/i);
+                if (oldRefer) {
+                    const newRefer = encodeURIComponent(config.referer);
+                    modified = modified.replace(/(refer(?:er)?=)[^&]+/i, '$1' + newRefer);
+                    changes.push(`refer: ${decodeURIComponent(oldRefer[1])} → ${config.referer}`);
+                }
+            }
+
+            // Modify keywords
+            if (modified.includes('kw=')) {
+                const oldKW = modified.match(/kw=([^&]+)/i);
+                if (oldKW) {
+                    const newKW = encodeURIComponent(config.keywords.replace(/"/g, '%22').replace(/\[/g, '%5B').replace(/\]/g, '%5D').replace(/,/g, '%2C'));
+                    modified = modified.replace(/kw=[^&]+/i, 'kw=' + newKW);
+                    changes.push(`kw: modified to ${config.keywords}`);
+                }
+            }
+
+            // Modify timezone
+            if (modified.includes('tz=')) {
+                modified = modified.replace(/tz=[^&]+/i, 'tz=' + config.tz);
+                changes.push(`tz: → ${config.tz}`);
+            }
+
+            // Modify resolution
+            if (modified.includes('res=')) {
+                modified = modified.replace(/res=[^&]+/i, 'res=' + config.res);
+                changes.push(`res: → ${config.res}`);
+            }
+
+            // Modify UUID (spoof fingerprint)
+            if (modified.includes('uuid=')) {
+                const fakeUUID = crypto.randomUUID() + ':3:' + Math.floor(Math.random() * 10);
+                modified = modified.replace(/uuid=[^&]+/i, 'uuid=' + fakeUUID);
+                changes.push(`uuid: → ${fakeUUID.substring(0, 20)}...`);
+            }
+
+            if (changes.length > 0) {
+                addLog(`🔴 MODIFIED: ${changes.join(', ')}`, 'warn');
+                addLog(`   Old: ${url.substring(0, 100)}...`, 'info');
+                addLog(`   New: ${modified.substring(0, 100)}...`, 'info');
+            }
+
+            return modified;
+        }
+
+        // ============================================
+        // INTERCEPT FETCH REQUESTS
+        // ============================================
+
+        function interceptFetch() {
+            originalFetch = window.fetch;
+            
+            window.fetch = async function(input, init = {}) {
+                let url = typeof input === 'string' ? input : input.url;
+                const originalURL = url;
+                
+                // Check if this is an ad-related request
+                if (interceptorActive && isAdRequest(url)) {
+                    url = modifyURL(url);
+                    
+                    if (url !== originalURL) {
+                        if (typeof input === 'string') {
+                            input = url;
+                        } else {
+                            input = new Request(url, input);
+                        }
+                    }
+                }
+                
+                requestCount++;
+                requestLog.push({
+                    id: requestCount,
+                    type: 'fetch',
+                    originalURL: originalURL,
+                    modifiedURL: url,
+                    modified: url !== originalURL,
+                    timestamp: new Date().toISOString(),
+                });
+                
+                return originalFetch.call(this, input, init);
+            };
+            
+            addLog('✅ Fetch API intercepted', 'success');
+        }
+
+        // ============================================
+        // INTERCEPT XMLHttpRequest
+        // ============================================
+
+        function interceptXHR() {
+            originalXHROpen = XMLHttpRequest.prototype.open;
+            originalXHRSend = XMLHttpRequest.prototype.send;
+            
+            XMLHttpRequest.prototype.open = function(method, url, ...args) {
+                this._ad_intercept_url = url;
+                this._ad_intercept_method = method;
+                
+                if (interceptorActive && isAdRequest(url)) {
+                    const modified = modifyURL(url);
+                    this._ad_intercept_modified = modified !== url;
+                    this._ad_intercept_original_url = url;
+                    return originalXHROpen.call(this, method, modified, ...args);
+                }
+                
+                return originalXHROpen.call(this, method, url, ...args);
+            };
+            
+            XMLHttpRequest.prototype.send = function(...args) {
+                if (this._ad_intercept_modified) {
+                    addLog(`🔴 XHR SENT (modified): ${this._ad_intercept_method} ${this._ad_intercept_original_url?.substring(0,80)}...`, 'warn');
+                }
+                
+                requestCount++;
+                requestLog.push({
+                    id: requestCount,
+                    type: 'xhr',
+                    method: this._ad_intercept_method,
+                    originalURL: this._ad_intercept_original_url,
+                    modified: this._ad_intercept_modified,
+                    timestamp: new Date().toISOString(),
+                });
+                
+                return originalXHRSend.apply(this, args);
+            };
+            
+            addLog('✅ XMLHttpRequest intercepted', 'success');
+        }
+
+        // ============================================
+        // INTERCEPT SCRIPT TAG CREATION
+        // ============================================
+
+        function interceptScriptCreation() {
+            originalCreateElement = document.createElement.bind(document);
+            
+            document.createElement = function(tagName, options) {
+                const element = originalCreateElement(tagName, options);
+                
+                if (tagName.toLowerCase() === 'script') {
+                    const originalSetAttr = element.setAttribute.bind(element);
+                    
+                    element.setAttribute = function(name, value) {
+                        if (name === 'src' && interceptorActive && isAdRequest(value)) {
+                            const modified = modifyURL(value);
+                            addLog(`🔴 SCRIPT SRC MODIFIED: ${value.substring(0,60)}... → ${modified.substring(0,60)}...`, 'warn');
+                            return originalSetAttr(name, modified);
+                        }
+                        return originalSetAttr(name, value);
+                    };
+                    
+                    // Also intercept direct .src assignment
+                    Object.defineProperty(element, 'src', {
+                        get: function() { return this.getAttribute('src'); },
+                        set: function(value) {
+                            if (interceptorActive && isAdRequest(value)) {
+                                const modified = modifyURL(value);
+                                addLog(`🔴 SCRIPT .src MODIFIED`, 'warn');
+                                this.setAttribute('src', modified);
+                            } else {
+                                this.setAttribute('src', value);
+                            }
+                        },
+                        configurable: true
+                    });
+                }
+                
+                return element;
+            };
+            
+            addLog('✅ Script element creation intercepted', 'success');
+        }
+
+        // ============================================
+        // HELPER: CHECK IF URL IS AD-RELATED
+        // ============================================
+
+        function isAdRequest(url) {
+            if (!url) return false;
+            const adDomains = [
+                'highperformanceformat.com',
+                'workdeadlinededicate.com',
+                'zoologyfibre.com',
+                'storageimagedisplay.com',
+                'pipaffiliates.com',
+                'propellerads',
+                'propeller',
+                'adnetwork',
+                'invoke.js',
+                'watch.',
+            ];
+            return adDomains.some(d => url.toLowerCase().includes(d.toLowerCase()));
+        }
+
+        // ============================================
+        // INJECT SPOOFED AD CODE
+        // ============================================
+
+        function injectAdCode() {
+            const config = getSpoofConfig();
+            
+            // Clear existing ad slots
+            document.getElementById('adSlot1').innerHTML = '';
+            document.getElementById('adSlot2').innerHTML = '';
+            
+            // Create ad script for slot 1
+            const script1 = document.createElement('script');
+            script1.innerHTML = `
+                atOptions = {
+                    'key' : '${config.pubKey}',
+                    'format' : '${config.format}',
+                    'height' : 90,
+                    'width' : 728,
+                    'params' : {}
+                };
+            `;
+            
+            const script2 = document.createElement('script');
+            script2.src = `https://www.highperformanceformat.com/${config.pubKey}/invoke.js`;
+            
+            document.getElementById('adSlot1').appendChild(script1);
+            document.getElementById('adSlot1').appendChild(script2);
+            
+            addLog('📢 Ad code injected into slot 1', 'success');
+            addLog(`   Key: ${config.pubKey}`, 'info');
+            addLog(`   Format: ${config.format}`, 'info');
+        }
+
+        // ============================================
+        // START / STOP
+        // ============================================
+
+        function startInterceptor() {
+            if (interceptorActive) return;
+            
+            addLog('🚀 STARTING INTERCEPTOR...', 'success');
+            addLog(`   Spoofed Referer: ${getSpoofConfig().referer}`, 'warn');
+            addLog(`   Spoofed Keywords: ${getSpoofConfig().keywords}`, 'warn');
+            addLog(`   Spoofed TZ: ${getSpoofConfig().tz}`, 'warn');
+            
+            interceptorActive = true;
+            setStatus(true);
+            
+            interceptFetch();
+            interceptXHR();
+            interceptScriptCreation();
+            
+            // Inject ad code after a small delay
+            setTimeout(() => {
+                injectAdCode();
+                addLog('✅ Interceptor active. Open Network tab (F12) to watch requests.', 'success');
+            }, 500);
+        }
+
+        function stopInterceptor() {
+            interceptorActive = false;
+            setStatus(false);
+            
+            // Restore original functions
+            if (originalFetch) window.fetch = originalFetch;
+            if (originalXHROpen) XMLHttpRequest.prototype.open = originalXHROpen;
+            if (originalXHRSend) XMLHttpRequest.prototype.send = originalXHRSend;
+            if (originalCreateElement) document.createElement = originalCreateElement;
+            
+            addLog('⏹️ Interceptor stopped. Original functions restored.', 'warn');
+        }
+
+        // ============================================
+        // EXPORT AS HAR
+        // ============================================
+
+        function exportHAR() {
+            const har = {
+                log: {
+                    version: "1.2",
+                    creator: { name: "AdInterceptor", version: "1.0" },
+                    entries: requestLog.map(r => ({
+                        startedDateTime: r.timestamp,
+                        request: {
+                            method: r.method || "GET",
+                            url: r.modifiedURL || r.originalURL,
+                            headers: [],
+                        },
+                        _intercepted: r.modified,
+                        _originalURL: r.originalURL,
+                    }))
+                }
+            };
+            
+            const blob = new Blob([JSON.stringify(har, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'ad_requests.har';
+            a.click();
+            URL.revokeObjectURL(url);
+            
+            addLog(`📥 Exported ${requestLog.length} requests as HAR file`, 'success');
+        }
+
+        // ============================================
+        // INITIAL SETUP
+        // ============================================
+
+        addLog('🔬 Ad Request Interceptor ready.');
+        addLog('📝 Configure spoof settings above, then click Start.');
+        addLog('🔍 Open F12 → Network tab to see real-time requests.');
+    </script>
+</body>
+</html>
