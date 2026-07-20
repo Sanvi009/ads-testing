@@ -30,11 +30,11 @@
             align-items: flex-start;
         }
 
-        /* Left & Right ad columns — each holds ONE long banner (728×90) */
+        /* Left & Right ad columns — each holds ONE vertical ad (160×600) */
         .ad-side {
-            flex: 0 0 320px;
-            min-width: 280px;
-            max-width: 340px;
+            flex: 0 0 180px;
+            min-width: 160px;
+            max-width: 200px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -44,23 +44,23 @@
             top: 30px;
         }
 
-        /* Ad container — ensures iframe behaves */
+        /* Ad container */
         .ad-container {
             background: #ffffff;
-            border-radius: 16px;
+            border-radius: 12px;
             box-shadow: 0 6px 18px rgba(0,0,0,0.04);
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100%;
             overflow: hidden;
-            padding: 6px;
+            padding: 4px;
         }
 
         .ad-container iframe {
             width: 100%;
             height: auto;
-            aspect-ratio: 728 / 90;
+            aspect-ratio: 160 / 600;
             border: 0;
             display: block;
             background: transparent;
@@ -153,7 +153,6 @@
         .banner-inline .ad-container {
             max-width: 300px;
             width: 100%;
-            aspect-ratio: 300 / 250;
         }
 
         .banner-inline .ad-container iframe {
@@ -163,8 +162,8 @@
         /* Responsive breakpoints */
         @media (max-width: 1150px) {
             .ad-side {
-                flex: 0 0 260px;
-                min-width: 220px;
+                flex: 0 0 160px;
+                min-width: 140px;
             }
         }
 
@@ -188,8 +187,8 @@
             }
 
             .ad-side .ad-container {
-                flex: 1 1 340px;
-                max-width: 400px;
+                flex: 0 0 160px;
+                max-width: 160px;
             }
 
             .content {
@@ -232,8 +231,8 @@
             }
 
             .ad-side .ad-container {
-                flex: 1 1 100%;
-                max-width: 100%;
+                flex: 0 0 160px;
+                max-width: 160px;
             }
 
             .banner-inline {
@@ -259,19 +258,19 @@
 
 <div class="layout">
 
-    <!-- LEFT SIDE – ONE long banner (728×90) -->
+    <!-- LEFT SIDE – ONE vertical ad (160×600) -->
     <aside class="ad-side" aria-label="Left advertisement">
         <div class="ad-container">
             <script>
                 atOptions = {
-                    'key' : '53576acfc8cfb717f9bc29f7b794cf24',
+                    'key' : '9e2344f35c5b33a49ac6ee4998cc72e6',
                     'format' : 'iframe',
-                    'height' : 90,
-                    'width' : 728,
+                    'height' : 600,
+                    'width' : 160,
                     'params' : {}
                 };
             </script>
-            <script src="https://www.highperformanceformat.com/53576acfc8cfb717f9bc29f7b794cf24/invoke.js"></script>
+            <script src="https://www.highperformanceformat.com/9e2344f35c5b33a49ac6ee4998cc72e6/invoke.js"></script>
         </div>
     </aside>
 
@@ -352,19 +351,19 @@
         </div>
     </main>
 
-    <!-- RIGHT SIDE – ONE long banner (728×90) -->
+    <!-- RIGHT SIDE – ONE vertical ad (160×600) -->
     <aside class="ad-side" aria-label="Right advertisement">
         <div class="ad-container">
             <script>
                 atOptions = {
-                    'key' : '53576acfc8cfb717f9bc29f7b794cf24',
+                    'key' : '9e2344f35c5b33a49ac6ee4998cc72e6',
                     'format' : 'iframe',
-                    'height' : 90,
-                    'width' : 728,
+                    'height' : 600,
+                    'width' : 160,
                     'params' : {}
                 };
             </script>
-            <script src="https://www.highperformanceformat.com/53576acfc8cfb717f9bc29f7b794cf24/invoke.js"></script>
+            <script src="https://www.highperformanceformat.com/9e2344f35c5b33a49ac6ee4998cc72e6/invoke.js"></script>
         </div>
     </aside>
 
