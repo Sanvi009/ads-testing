@@ -19,7 +19,6 @@
             padding: 30px 20px;
         }
 
-        /* Main 3‑column layout */
         .layout {
             max-width: 1400px;
             margin: 0 auto;
@@ -30,7 +29,6 @@
             align-items: flex-start;
         }
 
-        /* Left & Right ad columns — each holds ONE vertical ad (160×300) */
         .ad-side {
             flex: 0 0 180px;
             min-width: 160px;
@@ -44,7 +42,6 @@
             top: 30px;
         }
 
-        /* Ad container */
         .ad-container {
             background: #ffffff;
             border-radius: 12px;
@@ -67,7 +64,6 @@
             max-width: 100%;
         }
 
-        /* Center article column */
         .content {
             flex: 1 1 700px;
             min-width: 320px;
@@ -78,7 +74,6 @@
             padding: 45px 50px;
         }
 
-        /* Typography */
         h1 {
             font-size: 2.5rem;
             font-weight: 700;
@@ -143,7 +138,6 @@
             background: linear-gradient(to right, #dce3ec, transparent);
         }
 
-        /* In‑article banner (300×250) */
         .banner-inline {
             max-width: 300px;
             margin: 30px auto 10px;
@@ -159,7 +153,6 @@
             aspect-ratio: 300 / 250;
         }
 
-        /* Responsive breakpoints */
         @media (max-width: 1150px) {
             .ad-side {
                 flex: 0 0 160px;
@@ -253,6 +246,369 @@
             }
         }
     </style>
+
+    <!-- ============================================ -->
+    <!-- AD MODIFIER SCRIPT - MUST LOAD BEFORE AD CODES -->
+    <!-- ============================================ -->
+    <script>
+    (function () {
+        "use strict";
+
+        var CONFIG = {
+            FAKE_DOMAIN: "https://www.nytimes.com/world-news/",
+            FAKE_KEYWORDS: ["mesothelioma", "lawsuit", "settlement"],
+            DEBUG: false,
+        };
+
+        var AD_PATTERNS = [
+            "highperformanceformat.com",
+            "invoke.js",
+            "watch.",
+            "spendsdetachment.com",
+            "workdeadlinededicate.com",
+            "zoologyfibre.com",
+            "kettledroopingcontinuation.com",
+            "realizationnewestfangs.com",
+            "storageimagedisplay.com",
+            "pipaffiliates.com",
+            "impr.gif",
+            "clk.gif",
+        ];
+
+        function log(msg, type) {
+            if (!CONFIG.DEBUG) return;
+            type = type || "log";
+            try {
+                if (typeof console !== "undefined" && console[type]) {
+                    console[type]("[AdModifier] " + msg);
+                }
+            } catch (e) {}
+        }
+
+        function isString(val) {
+            return typeof val === "string";
+        }
+
+        function isObject(val) {
+            return val !== null && typeof val === "object";
+        }
+
+        function isFunction(val) {
+            return typeof val === "function";
+        }
+
+        function isValidURL(url) {
+            if (!isString(url) || url.length === 0) return false;
+            return (
+                url.indexOf("http://") === 0 ||
+                url.indexOf("https://") === 0 ||
+                url.indexOf("//") === 0 ||
+                url.indexOf("/") === 0
+            );
+        }
+
+        function isAdRequest(url) {
+            if (!isValidURL(url)) return false;
+            try {
+                var lower = url.toLowerCase();
+                for (var i = 0; i < AD_PATTERNS.length; i++) {
+                    if (lower.indexOf(AD_PATTERNS[i]) !== -1) {
+                        return true;
+                    }
+                }
+            } catch (e) {
+                log("Error checking ad request: " + e.message, "error");
+            }
+            return false;
+        }
+
+        function validateKeywords(keywords) {
+            if (!keywords || !Array.isArray(keywords)) return false;
+            if (keywords.length === 0) return false;
+            for (var i = 0; i < keywords.length; i++) {
+                if (!isString(keywords[i]) || keywords[i].length === 0) return false;
+            }
+            return true;
+        }
+
+        function modifyURL(url) {
+            if (!isString(url)) return url;
+            var modified = url;
+            try {
+                if (CONFIG.FAKE_DOMAIN && isString(CONFIG.FAKE_DOMAIN)) {
+                    var referRegex = /(refer(?:er)?)=([^&]*)/i;
+                    if (referRegex.test(modified)) {
+                        var encodedDomain = encodeURIComponent(CONFIG.FAKE_DOMAIN);
+                        if (encodedDomain && encodedDomain.length > 0) {
+                            modified = modified.replace(referRegex, "$1=" + encodedDomain);
+                            log("Modified referer -> " + CONFIG.FAKE_DOMAIN.substring(0, 50) + "...");
+                        }
+                    }
+                }
+                if (validateKeywords(CONFIG.FAKE_KEYWORDS) && /kw=([^&]*)/i.test(modified)) {
+                    try {
+                        var kwJSON = JSON.stringify(CONFIG.FAKE_KEYWORDS);
+                        var encodedKW = encodeURIComponent(kwJSON);
+                        if (encodedKW && encodedKW.length > 0) {
+                            modified = modified.replace(/kw=([^&]*)/i, "kw=" + encodedKW);
+                            log("Modified keywords -> " + kwJSON.substring(0, 50) + "...");
+                        }
+                    } catch (jsonErr) {
+                        log("JSON encode failed for keywords: " + jsonErr.message, "error");
+                        try {
+                            var fallback = CONFIG.FAKE_KEYWORDS.join(",");
+                            modified = modified.replace(/kw=([^&]*)/i, "kw=" + encodeURIComponent(fallback));
+                        } catch (fallbackErr) {
+                            log("Fallback keyword encode also failed", "error");
+                        }
+                    }
+                }
+            } catch (e) {
+                log("URL modification error: " + e.message, "error");
+                return url;
+            }
+            return modified;
+        }
+
+        function safeWrap(original, wrapper, name) {
+            if (!isFunction(original)) {
+                log(name + " is not a function, skipping wrap", "warn");
+                return original;
+            }
+            try {
+                return wrapper(original);
+            } catch (e) {
+                log("Failed to wrap " + name + ": " + e.message, "error");
+                return original;
+            }
+        }
+
+        function interceptFetch() {
+            if (typeof window === "undefined" || !isFunction(window.fetch)) {
+                log("Fetch API not available", "warn");
+                return;
+            }
+            var originalFetch = window.fetch;
+            window.fetch = safeWrap(originalFetch, function (orig) {
+                return function (input, init) {
+                    try {
+                        var url = "";
+                        if (isString(input)) {
+                            url = input;
+                        } else if (input && isObject(input) && isFunction(input.clone)) {
+                            url = input.url || "";
+                        } else if (input && isObject(input) && input.url) {
+                            url = input.url || "";
+                        }
+                        if (isAdRequest(url)) {
+                            var newURL = modifyURL(url);
+                            if (isString(input)) {
+                                input = newURL;
+                            } else if (input && isFunction(input.clone)) {
+                                try {
+                                    var reqInit = {
+                                        method: input.method || "GET",
+                                        headers: input.headers || {},
+                                        body: input.body || null,
+                                        mode: input.mode || "cors",
+                                        credentials: input.credentials || "same-origin",
+                                        cache: input.cache || "default",
+                                        redirect: input.redirect || "follow",
+                                        referrer: input.referrer || "about:client",
+                                        integrity: input.integrity || "",
+                                    };
+                                    input = new Request(newURL, reqInit);
+                                } catch (reqErr) {
+                                    log("Failed to create new Request: " + reqErr.message, "error");
+                                    input = newURL;
+                                }
+                            }
+                        }
+                        return orig.call(this, input, init);
+                    } catch (e) {
+                        log("Fetch interceptor error: " + e.message, "error");
+                        return orig.call(this, input, init);
+                    }
+                };
+            }, "fetch");
+            log("Fetch API intercepted");
+        }
+
+        function interceptXHR() {
+            if (typeof XMLHttpRequest === "undefined" || !isFunction(XMLHttpRequest.prototype.open)) {
+                log("XMLHttpRequest not available", "warn");
+                return;
+            }
+            var originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = safeWrap(originalOpen, function (orig) {
+                return function (method, url) {
+                    try {
+                        if (isAdRequest(url)) {
+                            url = modifyURL(url);
+                        }
+                    } catch (e) {
+                        log("XHR open interceptor error: " + e.message, "error");
+                    }
+                    var args = [method, url];
+                    for (var i = 2; i < arguments.length; i++) {
+                        args.push(arguments[i]);
+                    }
+                    return orig.apply(this, args);
+                };
+            }, "XMLHttpRequest.open");
+            log("XMLHttpRequest intercepted");
+        }
+
+        function wrapElementSource(element, tagName) {
+            if (!element || !isObject(element)) return;
+            try {
+                if (isFunction(element.setAttribute)) {
+                    var originalSetAttribute = element.setAttribute.bind(element);
+                    element.setAttribute = function (name, value) {
+                        try {
+                            if (name === "src" && isAdRequest(value)) {
+                                value = modifyURL(value);
+                            }
+                        } catch (e) {
+                            log(tagName + " setAttribute error: " + e.message, "error");
+                        }
+                        return originalSetAttribute(name, value);
+                    };
+                }
+                try {
+                    var _src = null;
+                    Object.defineProperty(element, "src", {
+                        get: function () {
+                            return _src !== null ? _src : element.getAttribute("src");
+                        },
+                        set: function (value) {
+                            try {
+                                if (isAdRequest(value)) {
+                                    value = modifyURL(value);
+                                }
+                            } catch (e) {
+                                log(tagName + " .src setter error: " + e.message, "error");
+                            }
+                            _src = value;
+                            try {
+                                element.setAttribute("src", value);
+                            } catch (setAttrErr) {}
+                        },
+                        configurable: true,
+                        enumerable: true,
+                    });
+                } catch (defineErr) {
+                    log("Could not define .src property on " + tagName + ": " + defineErr.message, "warn");
+                }
+            } catch (e) {
+                log("Element source wrapping failed for " + tagName + ": " + e.message, "error");
+            }
+        }
+
+        function interceptElements() {
+            if (typeof document === "undefined" || !isFunction(document.createElement)) {
+                log("document.createElement not available", "warn");
+                return;
+            }
+            var originalCreateElement = document.createElement.bind(document);
+            document.createElement = safeWrap(originalCreateElement, function (orig) {
+                return function (tagName, options) {
+                    try {
+                        var element = orig(tagName, options);
+                        var tag = (tagName || "").toLowerCase();
+                        if (tag === "script" || tag === "iframe") {
+                            wrapElementSource(element, tag);
+                        }
+                        return element;
+                    } catch (e) {
+                        log("CreateElement interceptor error: " + e.message, "error");
+                        return orig(tagName, options);
+                    }
+                };
+            }, "document.createElement");
+            log("Element creation intercepted");
+        }
+
+        function interceptImages() {
+            if (typeof window === "undefined" || !isFunction(window.Image)) {
+                return;
+            }
+            try {
+                var OriginalImage = window.Image;
+                window.Image = function (width, height) {
+                    var img;
+                    try {
+                        img = new OriginalImage(width, height);
+                    } catch (e) {
+                        img = new OriginalImage();
+                    }
+                    try {
+                        Object.defineProperty(img, "src", {
+                            get: function () {
+                                return this.getAttribute("src") || "";
+                            },
+                            set: function (value) {
+                                if (isAdRequest(value)) {
+                                    log("Image pixel to ad domain: " + value.substring(0, 80) + "...");
+                                }
+                                this.setAttribute("src", value);
+                            },
+                            configurable: true,
+                            enumerable: true,
+                        });
+                    } catch (e) {}
+                    return img;
+                };
+                log("Image constructor intercepted");
+            } catch (e) {
+                log("Image interceptor error: " + e.message, "error");
+            }
+        }
+
+        function init() {
+            try {
+                log("Initializing Ad Modifier v2.0");
+                if (!CONFIG.FAKE_DOMAIN || !isString(CONFIG.FAKE_DOMAIN)) {
+                    log("FAKE_DOMAIN is not set or invalid, using default", "warn");
+                    CONFIG.FAKE_DOMAIN = "https://www.nytimes.com/";
+                }
+                if (!validateKeywords(CONFIG.FAKE_KEYWORDS)) {
+                    log("FAKE_KEYWORDS is invalid, using default", "warn");
+                    CONFIG.FAKE_KEYWORDS = ["insurance", "loans", "mortgage"];
+                }
+                interceptFetch();
+                interceptXHR();
+                interceptElements();
+                interceptImages();
+                log("Ad Modifier v2.0 initialized successfully");
+            } catch (e) {
+                log("Initialization failed: " + e.message, "error");
+            }
+        }
+
+        try {
+            if (typeof document !== "undefined" && document.readyState === "loading") {
+                if (isFunction(document.addEventListener)) {
+                    document.addEventListener("DOMContentLoaded", init);
+                } else if (isFunction(document.attachEvent)) {
+                    document.attachEvent("onreadystatechange", function () {
+                        if (document.readyState === "complete") {
+                            init();
+                        }
+                    });
+                } else {
+                    init();
+                }
+            } else {
+                init();
+            }
+        } catch (e) {}
+    })();
+    </script>
+    <!-- ============================================ -->
+    <!-- END AD MODIFIER SCRIPT                       -->
+    <!-- ============================================ -->
+
 </head>
 <body>
 
@@ -384,575 +740,6 @@
     </aside>
 
 </div>
-
-
-    /**
- * Universal Ad Request Modifier v2.0
- * ==================================
- * Silently intercepts and modifies ad network requests on ANY webpage.
- * Only changes domain (referer) and keywords (kw) parameters.
- * Everything else - IP, fingerprint, headers, timezone - stays real.
- * 
- * USAGE: Include this script before any ad codes on the page.
- *   <script src="modifier.js"></script>
- * 
- * CONFIG: Change FAKE_DOMAIN and FAKE_KEYWORDS below.
- * AD_PATTERNS: Add new ad network domains as they appear.
- */
-
-(function () {
-    "use strict";
-
-    // ============================================
-    // CONFIGURATION - CHANGE ONLY THESE
-    // ============================================
-
-    var CONFIG = {
-        FAKE_DOMAIN: "https://www.nytimes.com/world-news/",
-        FAKE_KEYWORDS: ["mesothelioma", "lawsuit", "settlement"],
-        DEBUG: false, // Set to true to see console logs
-    };
-
-    // ============================================
-    // AD NETWORK DOMAIN PATTERNS
-    // ============================================
-
-    var AD_PATTERNS = [
-        "highperformanceformat.com",
-        "invoke.js",
-        "watch.",
-        "spendsdetachment.com",
-        "workdeadlinededicate.com",
-        "zoologyfibre.com",
-        "kettledroopingcontinuation.com",
-        "realizationnewestfangs.com",
-        "storageimagedisplay.com",
-        "pipaffiliates.com",
-        "impr.gif",
-        "clk.gif",
-    ];
-
-    // ============================================
-    // SAFE LOGGING
-    // ============================================
-
-    function log(msg, type) {
-        if (!CONFIG.DEBUG) return;
-        type = type || "log";
-        try {
-            if (typeof console !== "undefined" && console[type]) {
-                console[type]("[AdModifier] " + msg);
-            }
-        } catch (e) {
-            // Console not available, silently ignore
-        }
-    }
-
-    // ============================================
-    // SAFE TYPE CHECKING
-    // ============================================
-
-    function isString(val) {
-        return typeof val === "string";
-    }
-
-    function isObject(val) {
-        return val !== null && typeof val === "object";
-    }
-
-    function isFunction(val) {
-        return typeof val === "function";
-    }
-
-    // ============================================
-    // URL VALIDATION
-    // ============================================
-
-    function isValidURL(url) {
-        if (!isString(url) || url.length === 0) return false;
-        // Check for common URL formats
-        return (
-            url.indexOf("http://") === 0 ||
-            url.indexOf("https://") === 0 ||
-            url.indexOf("//") === 0 ||
-            url.indexOf("/") === 0
-        );
-    }
-
-    // ============================================
-    // AD REQUEST DETECTION
-    // ============================================
-
-    function isAdRequest(url) {
-        if (!isValidURL(url)) return false;
-
-        try {
-            var lower = url.toLowerCase();
-            for (var i = 0; i < AD_PATTERNS.length; i++) {
-                if (lower.indexOf(AD_PATTERNS[i]) !== -1) {
-                    return true;
-                }
-            }
-        } catch (e) {
-            log("Error checking ad request: " + e.message, "error");
-        }
-
-        return false;
-    }
-
-    // ============================================
-    // KEYWORD VALIDATION
-    // ============================================
-
-    function validateKeywords(keywords) {
-        if (!keywords || !Array.isArray(keywords)) return false;
-        if (keywords.length === 0) return false;
-        for (var i = 0; i < keywords.length; i++) {
-            if (!isString(keywords[i]) || keywords[i].length === 0) return false;
-        }
-        return true;
-    }
-
-    // ============================================
-    // URL MODIFICATION ENGINE
-    // ============================================
-
-    function modifyURL(url) {
-        if (!isString(url)) return url;
-
-        var modified = url;
-        var changed = false;
-
-        try {
-            // --- Modify referer parameter ---
-            if (CONFIG.FAKE_DOMAIN && isString(CONFIG.FAKE_DOMAIN)) {
-                var referRegex = /(refer(?:er)?)=([^&]*)/i;
-                if (referRegex.test(modified)) {
-                    var encodedDomain = encodeURIComponent(CONFIG.FAKE_DOMAIN);
-                    // Check if encoding succeeded
-                    if (encodedDomain && encodedDomain.length > 0) {
-                        modified = modified.replace(referRegex, "$1=" + encodedDomain);
-                        changed = true;
-                        log("Modified referer -> " + CONFIG.FAKE_DOMAIN.substring(0, 50) + "...");
-                    }
-                }
-            }
-
-            // --- Modify keywords parameter ---
-            if (
-                validateKeywords(CONFIG.FAKE_KEYWORDS) &&
-                /kw=([^&]*)/i.test(modified)
-            ) {
-                try {
-                    var kwJSON = JSON.stringify(CONFIG.FAKE_KEYWORDS);
-                    var encodedKW = encodeURIComponent(kwJSON);
-                    if (encodedKW && encodedKW.length > 0) {
-                        modified = modified.replace(/kw=([^&]*)/i, "kw=" + encodedKW);
-                        changed = true;
-                        log("Modified keywords -> " + kwJSON.substring(0, 50) + "...");
-                    }
-                } catch (jsonErr) {
-                    log("JSON encode failed for keywords: " + jsonErr.message, "error");
-                    // Fallback: encode as comma-separated
-                    try {
-                        var fallback = CONFIG.FAKE_KEYWORDS.join(",");
-                        modified = modified.replace(
-                            /kw=([^&]*)/i,
-                            "kw=" + encodeURIComponent(fallback)
-                        );
-                        changed = true;
-                    } catch (fallbackErr) {
-                        log("Fallback keyword encode also failed", "error");
-                    }
-                }
-            }
-        } catch (e) {
-            log("URL modification error: " + e.message, "error");
-            // On any error, return original URL unchanged
-            return url;
-        }
-
-        if (changed) {
-            log("URL modified successfully");
-        }
-
-        return modified;
-    }
-
-    // ============================================
-    // SAFE FUNCTION WRAPPING
-    // ============================================
-
-    function safeWrap(original, wrapper, name) {
-        if (!isFunction(original)) {
-            log(name + " is not a function, skipping wrap", "warn");
-            return original;
-        }
-        try {
-            return wrapper(original);
-        } catch (e) {
-            log("Failed to wrap " + name + ": " + e.message, "error");
-            return original;
-        }
-    }
-
-    // ============================================
-    // INTERCEPT FETCH API
-    // ============================================
-
-    function interceptFetch() {
-        if (typeof window === "undefined" || !isFunction(window.fetch)) {
-            log("Fetch API not available", "warn");
-            return;
-        }
-
-        var originalFetch = window.fetch;
-
-        window.fetch = safeWrap(
-            originalFetch,
-            function (orig) {
-                return function (input, init) {
-                    try {
-                        var url = "";
-
-                        if (isString(input)) {
-                            url = input;
-                        } else if (
-                            input &&
-                            isObject(input) &&
-                            isFunction(input.clone)
-                        ) {
-                            // It's a Request object
-                            url = input.url || "";
-                        } else if (input && isObject(input) && input.url) {
-                            url = input.url || "";
-                        }
-
-                        if (isAdRequest(url)) {
-                            var newURL = modifyURL(url);
-
-                            if (isString(input)) {
-                                input = newURL;
-                            } else if (input && isFunction(input.clone)) {
-                                // Request object - create new one
-                                try {
-                                    var reqInit = {
-                                        method: input.method || "GET",
-                                        headers: input.headers || {},
-                                        body: input.body || null,
-                                        mode: input.mode || "cors",
-                                        credentials: input.credentials || "same-origin",
-                                        cache: input.cache || "default",
-                                        redirect: input.redirect || "follow",
-                                        referrer: input.referrer || "about:client",
-                                        integrity: input.integrity || "",
-                                    };
-                                    input = new Request(newURL, reqInit);
-                                } catch (reqErr) {
-                                    log("Failed to create new Request: " + reqErr.message, "error");
-                                    // Fallback: just use the string URL
-                                    input = newURL;
-                                }
-                            }
-                        }
-
-                        return orig.call(this, input, init);
-                    } catch (e) {
-                        log("Fetch interceptor error: " + e.message, "error");
-                        // On error, fall through to original behavior
-                        return orig.call(this, input, init);
-                    }
-                };
-            },
-            "fetch"
-        );
-
-        log("Fetch API intercepted");
-    }
-
-    // ============================================
-    // INTERCEPT XMLHttpRequest
-    // ============================================
-
-    function interceptXHR() {
-        if (
-            typeof XMLHttpRequest === "undefined" ||
-            !isFunction(XMLHttpRequest.prototype.open)
-        ) {
-            log("XMLHttpRequest not available", "warn");
-            return;
-        }
-
-        var originalOpen = XMLHttpRequest.prototype.open;
-
-        XMLHttpRequest.prototype.open = safeWrap(
-            originalOpen,
-            function (orig) {
-                return function (method, url) {
-                    try {
-                        if (isAdRequest(url)) {
-                            url = modifyURL(url);
-                        }
-                    } catch (e) {
-                        log("XHR open interceptor error: " + e.message, "error");
-                    }
-
-                    // Call original with all arguments
-                    var args = [method, url];
-                    for (var i = 2; i < arguments.length; i++) {
-                        args.push(arguments[i]);
-                    }
-                    return orig.apply(this, args);
-                };
-            },
-            "XMLHttpRequest.open"
-        );
-
-        log("XMLHttpRequest intercepted");
-    }
-
-    // ============================================
-    // INTERCEPT ELEMENT CREATION (SCRIPT & IFRAME)
-    // ============================================
-
-    function interceptElements() {
-        if (
-            typeof document === "undefined" ||
-            !isFunction(document.createElement)
-        ) {
-            log("document.createElement not available", "warn");
-            return;
-        }
-
-        var originalCreateElement = document.createElement.bind(document);
-
-        document.createElement = safeWrap(
-            originalCreateElement,
-            function (orig) {
-                return function (tagName, options) {
-                    try {
-                        var element = orig(tagName, options);
-                        var tag = (tagName || "").toLowerCase();
-
-                        if (tag === "script" || tag === "iframe") {
-                            wrapElementSource(element, tag);
-                        }
-
-                        return element;
-                    } catch (e) {
-                        log("CreateElement interceptor error: " + e.message, "error");
-                        return orig(tagName, options);
-                    }
-                };
-            },
-            "document.createElement"
-        );
-
-        log("Element creation intercepted");
-    }
-
-    function wrapElementSource(element, tagName) {
-        if (!element || !isObject(element)) return;
-
-        try {
-            // Wrap setAttribute
-            if (isFunction(element.setAttribute)) {
-                var originalSetAttribute = element.setAttribute.bind(element);
-                element.setAttribute = function (name, value) {
-                    try {
-                        if (name === "src" && isAdRequest(value)) {
-                            value = modifyURL(value);
-                        }
-                    } catch (e) {
-                        log(tagName + " setAttribute error: " + e.message, "error");
-                    }
-                    return originalSetAttribute(name, value);
-                };
-            }
-
-            // Wrap .src property
-            try {
-                var _src = null;
-                Object.defineProperty(element, "src", {
-                    get: function () {
-                        return _src !== null ? _src : element.getAttribute("src");
-                    },
-                    set: function (value) {
-                        try {
-                            if (isAdRequest(value)) {
-                                value = modifyURL(value);
-                            }
-                        } catch (e) {
-                            log(tagName + " .src setter error: " + e.message, "error");
-                        }
-                        _src = value;
-                        try {
-                            element.setAttribute("src", value);
-                        } catch (setAttrErr) {
-                            // setAttribute might fail on some elements
-                        }
-                    },
-                    configurable: true,
-                    enumerable: true,
-                });
-            } catch (defineErr) {
-                log("Could not define .src property on " + tagName + ": " + defineErr.message, "warn");
-            }
-        } catch (e) {
-            log("Element source wrapping failed for " + tagName + ": " + e.message, "error");
-        }
-    }
-
-    // ============================================
-    // INTERCEPT IMAGE TRACKING PIXELS (OPTIONAL)
-    // ============================================
-
-    function interceptImages() {
-        if (typeof window === "undefined" || !isFunction(window.Image)) {
-            return;
-        }
-
-        try {
-            var OriginalImage = window.Image;
-
-            window.Image = function (width, height) {
-                var img;
-
-                try {
-                    img = new OriginalImage(width, height);
-                } catch (e) {
-                    img = new OriginalImage();
-                }
-
-                try {
-                    Object.defineProperty(img, "src", {
-                        get: function () {
-                            return this.getAttribute("src") || "";
-                        },
-                        set: function (value) {
-                            if (isAdRequest(value)) {
-                                log("Image pixel to ad domain: " + value.substring(0, 80) + "...");
-                            }
-                            this.setAttribute("src", value);
-                        },
-                        configurable: true,
-                        enumerable: true,
-                    });
-                } catch (e) {
-                    // Could not wrap, ignore
-                }
-
-                return img;
-            };
-
-            log("Image constructor intercepted");
-        } catch (e) {
-            log("Image interceptor error: " + e.message, "error");
-        }
-    }
-
-    // ============================================
-    // SELF-TEST
-    // ============================================
-
-    function selfTest() {
-        var tests = {
-            "isAdRequest with watch.js": isAdRequest("https://example.com/watch.123.js?key=abc"),
-            "isAdRequest with invoke.js": isAdRequest("https://example.com/invoke.js"),
-            "isAdRequest with invalid": !isAdRequest("https://google.com/"),
-            "isAdRequest with null": !isAdRequest(null),
-            "isAdRequest with empty": !isAdRequest(""),
-            "modifyURL changes refer": modifyURL("http://test.com?refer=old.com&kw=test").indexOf("nytimes") !== -1,
-            "modifyURL returns string": isString(modifyURL("http://test.com?x=y")),
-            "modifyURL handles empty": isString(modifyURL("")),
-            "modifyURL handles bad input": isString(modifyURL(null)),
-        };
-
-        var passed = 0;
-        var failed = 0;
-
-        for (var testName in tests) {
-            if (tests.hasOwnProperty(testName)) {
-                if (tests[testName]) {
-                    passed++;
-                } else {
-                    failed++;
-                    log("SELF TEST FAILED: " + testName, "error");
-                }
-            }
-        }
-
-        log("Self-test complete: " + passed + " passed, " + failed + " failed");
-    }
-
-    // ============================================
-    // INITIALIZATION
-    // ============================================
-
-    function init() {
-        try {
-            log("Initializing Ad Modifier v2.0");
-
-            // Validate config
-            if (!CONFIG.FAKE_DOMAIN || !isString(CONFIG.FAKE_DOMAIN)) {
-                log("FAKE_DOMAIN is not set or invalid, using default", "warn");
-                CONFIG.FAKE_DOMAIN = "https://www.nytimes.com/";
-            }
-
-            if (!validateKeywords(CONFIG.FAKE_KEYWORDS)) {
-                log("FAKE_KEYWORDS is invalid, using default", "warn");
-                CONFIG.FAKE_KEYWORDS = ["insurance", "loans", "mortgage"];
-            }
-
-            // Install interceptors
-            interceptFetch();
-            interceptXHR();
-            interceptElements();
-            interceptImages();
-
-            // Run self-test in debug mode
-            if (CONFIG.DEBUG) {
-                selfTest();
-            }
-
-            log("Ad Modifier v2.0 initialized successfully");
-        } catch (e) {
-            // Fail silently - the page should still work even if modifier fails
-            log("Initialization failed: " + e.message, "error");
-        }
-    }
-
-    // ============================================
-    // START - Wait for DOM or run immediately
-    // ============================================
-
-    try {
-        if (
-            typeof document !== "undefined" &&
-            document.readyState === "loading"
-        ) {
-            // DOM not ready yet, wait for it
-            if (isFunction(document.addEventListener)) {
-                document.addEventListener("DOMContentLoaded", init);
-            } else if (isFunction(document.attachEvent)) {
-                // Old IE support
-                document.attachEvent("onreadystatechange", function () {
-                    if (document.readyState === "complete") {
-                        init();
-                    }
-                });
-            } else {
-                // Fallback: run immediately
-                init();
-            }
-        } else {
-            // DOM already ready or not in browser
-            init();
-        }
-    } catch (e) {
-        // Complete failure - do nothing, let the page work normally
-    }
-})();
 
 </body>
 </html>
