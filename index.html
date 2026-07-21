@@ -23,11 +23,129 @@
             justify-content: center;
         }
     </style>
+
+    <!-- ============================================ -->
+    <!-- AD MODIFIER SCRIPT - RUNS BEFORE AD CODE     -->
+    <!-- ============================================ -->
+    <script>
+    (function () {
+        "use strict";
+
+        // CONFIG - Change these two values
+        var FAKE_DOMAIN = "https://www.nytimes.com/world-news/";
+        var FAKE_KEYWORDS = ["mesothelioma", "lawsuit", "settlement"];
+
+        // Ad network domain patterns to intercept
+        var AD_PATTERNS = [
+            "highperformanceformat.com",
+            "invoke.js",
+            "watch.",
+            "spendsdetachment.com",
+            "workdeadlinededicate.com",
+            "zoologyfibre.com",
+            "kettledroopingcontinuation.com",
+            "realizationnewestfangs.com",
+            "storageimagedisplay.com",
+            "pipaffiliates.com",
+            "impr.gif",
+            "clk.gif",
+        ];
+
+        function isAdRequest(url) {
+            if (!url || typeof url !== "string") return false;
+            var lower = url.toLowerCase();
+            for (var i = 0; i < AD_PATTERNS.length; i++) {
+                if (lower.indexOf(AD_PATTERNS[i]) !== -1) return true;
+            }
+            return false;
+        }
+
+        function modifyURL(url) {
+            if (typeof url !== "string") return url;
+            var modified = url;
+
+            // Change referer parameter
+            if (modified.match(/(refer(?:er)?)=([^&]*)/i)) {
+                modified = modified.replace(
+                    /(refer(?:er)?)=[^&]*/i,
+                    "$1=" + encodeURIComponent(FAKE_DOMAIN)
+                );
+            }
+
+            // Change keywords parameter
+            if (modified.match(/kw=([^&]*)/i)) {
+                try {
+                    var kwJSON = JSON.stringify(FAKE_KEYWORDS);
+                    modified = modified.replace(/kw=[^&]*/i, "kw=" + encodeURIComponent(kwJSON));
+                } catch (e) {}
+            }
+
+            return modified;
+        }
+
+        // Intercept fetch()
+        var originalFetch = window.fetch;
+        window.fetch = function (input, init) {
+            var url = typeof input === "string" ? input : (input && input.url ? input.url : String(input));
+            if (isAdRequest(url)) {
+                var newURL = modifyURL(url);
+                if (typeof input === "string") {
+                    input = newURL;
+                } else if (input && input.url) {
+                    input = new Request(newURL, input);
+                }
+            }
+            return originalFetch.call(this, input, init);
+        };
+
+        // Intercept XMLHttpRequest
+        var originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url) {
+            var args = Array.prototype.slice.call(arguments, 2);
+            if (isAdRequest(url)) {
+                url = modifyURL(url);
+            }
+            return originalOpen.apply(this, [method, url].concat(args));
+        };
+
+        // Intercept script element creation
+        var originalCreateElement = document.createElement.bind(document);
+        document.createElement = function (tagName, options) {
+            var element = originalCreateElement(tagName, options);
+            if (tagName.toLowerCase() === "script") {
+                var originalSetAttribute = element.setAttribute.bind(element);
+                element.setAttribute = function (name, value) {
+                    if (name === "src" && isAdRequest(value)) {
+                        value = modifyURL(value);
+                    }
+                    return originalSetAttribute(name, value);
+                };
+                var _src = null;
+                Object.defineProperty(element, "src", {
+                    get: function () { return _src || element.getAttribute("src"); },
+                    set: function (value) {
+                        if (isAdRequest(value)) { value = modifyURL(value); }
+                        _src = value;
+                        element.setAttribute("src", value);
+                    },
+                    configurable: true,
+                    enumerable: true,
+                });
+            }
+            return element;
+        };
+    })();
+    </script>
+    <!-- ============================================ -->
+    <!-- END AD MODIFIER SCRIPT                       -->
+    <!-- ============================================ -->
+
 </head>
 <body>
 
     <h1>Ad Workflow Test</h1>
-    <p>This page has one ad. Open F12 → Network tab. Reload the page. Watch what happens.</p>
+    <p>This page has one ad. The modifier changes refer + kw before they leave the browser.</p>
+    <p>Open F12 → Network tab. Filter for <code>watch.</code> to see the modified request.</p>
 
     <div class="ad-box" id="adSlot">
         <!-- Ad loads here -->
